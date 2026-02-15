@@ -1,0 +1,133 @@
+{
+  "LLMS": [
+    {
+      "name": "llama3:latest",
+      "size_b": 8.0,
+      "type": "dense",
+      "primary_role": ["routing", "tool_calls"],
+      "recommended_quantizations": ["q4_0"],
+      "context_window_tokens": 8192,
+      "notes": "Llama 3 8B Q4_0 via Ollama. General-purpose instruct model."
+    },
+    {
+      "name": "qwen2.5:7b",
+      "size_b": 7.6,
+      "type": "dense",
+      "primary_role": ["routing", "structured_output", "tool_calls"],
+      "recommended_quantizations": ["q4_k_m"],
+      "context_window_tokens": 32768,
+      "notes": "Qwen 2.5 7B Q4_K_M via Ollama. Strong instruction following and JSON control."
+    },
+    {
+      "name": "deepseek-r1:1.5b",
+      "size_b": 1.8,
+      "type": "dense",
+      "primary_role": ["reasoning"],
+      "recommended_quantizations": ["q4_k_m"],
+      "context_window_tokens": 64000,
+      "notes": "DeepSeek R1 1.5B Q4_K_M via Ollama. Compact reasoning model."
+    }
+  ],
+
+  "MODEL_CHARACTERISTIC": {
+    "hardware_profile": {
+      "gpu_vram_gb": null,
+      "system_ram_gb": null,
+      "cpu_cores": null,
+      "gpu_type": null
+    },
+    "runtime_profile": {
+      "backend": ["ollama", "llama.cpp", "vllm", "exllamav2", "tensorrt_llm"],
+      "quantization": ["fp16", "q8_0", "q6_k", "q5_k_m", "q4_k_m"],
+      "max_context_tokens": null,
+      "rope_scaling": true,
+      "kv_cache_dtype": ["fp16", "fp8", "int8"]
+    },
+    "performance_metrics": {
+      "tokens_per_second_prompt": null,
+      "tokens_per_second_generation": null,
+      "first_token_latency_ms": null,
+      "max_stable_context_tokens": null,
+      "memory_usage_gb": null,
+      "gpu_utilization_percent": null
+    },
+    "quality_metrics": {
+      "tool_call_accuracy_percent": null,
+      "json_validity_percent": null,
+      "function_selection_accuracy_percent": null,
+      "hallucination_rate_percent": null,
+      "routing_classification_accuracy_percent": null,
+      "long_context_recall_percent": null,
+      "code_compilation_success_percent": null
+    },
+    "stability_metrics": {
+      "crash_rate_percent": null,
+      "oom_events": null,
+      "context_degradation_point_tokens": null
+    }
+  },
+
+  "TEST": {
+    "routing_tests": [
+      {
+        "name": "intent_classification",
+        "description": "Classify user queries into predefined routes (search, tool_call, answer, escalate).",
+        "dataset_size": 500,
+        "metric": "accuracy_percent"
+      },
+      {
+        "name": "latency_test",
+        "description": "Measure first-token latency and total completion time.",
+        "metric": ["first_token_latency_ms", "tokens_per_second_generation"]
+      }
+    ],
+    "tool_call_tests": [
+      {
+        "name": "json_schema_conformance",
+        "description": "Model must output valid JSON matching provided schema.",
+        "metric": "json_validity_percent"
+      },
+      {
+        "name": "function_selection",
+        "description": "Select correct tool from list of 10 tools.",
+        "metric": "function_selection_accuracy_percent"
+      },
+      {
+        "name": "argument_accuracy",
+        "description": "Correctness of generated arguments against ground truth.",
+        "metric": "tool_call_accuracy_percent"
+      }
+    ],
+    "context_tests": [
+      {
+        "name": "needle_in_haystack",
+        "description": "Place key fact at random token position in long context.",
+        "metric": "long_context_recall_percent"
+      },
+      {
+        "name": "context_scaling",
+        "description": "Evaluate degradation at 25%, 50%, 75%, 100% max context.",
+        "metric": "context_degradation_point_tokens"
+      }
+    ],
+    "quantization_tests": [
+      {
+        "name": "quantization_quality_drop",
+        "description": "Compare fp16 baseline vs q8/q6/q5/q4 outputs.",
+        "metric": "quality_delta_percent"
+      },
+      {
+        "name": "memory_profile",
+        "description": "Track VRAM usage at different quantizations.",
+        "metric": "memory_usage_gb"
+      }
+    ],
+    "code_tests": [
+      {
+        "name": "compile_and_run",
+        "description": "Generate code snippet and attempt compilation/execution.",
+        "metric": "code_compilation_success_percent"
+      }
+    ]
+  }
+}

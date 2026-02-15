@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl:*)",
+      "WebFetch(domain:127.0.0.1)",
+      "Bash(python -c:*)",
+      "Bash(python run_tests.py:*)",
+      "Bash(pip install:*)",
+      "Bash(pytest:*)",
+      "Bash(python -m pytest:*)",
+      "Bash(git add:*)"
+    ]
+  }
+}
