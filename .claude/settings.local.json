@@ -8,7 +8,10 @@
       "Bash(pip install:*)",
       "Bash(pytest:*)",
       "Bash(python -m pytest:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(gh repo create:*)",
+      "Bash(ollama list:*)"
     ]
   }
 }

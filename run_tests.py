@@ -9,7 +9,8 @@ import re
 import subprocess
 import tempfile
 import time
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +41,7 @@ def build_configs(model_name: str, max_context: int = 8192) -> list[ModelConfig]
         ("minimal-prompt", 0.0, 1.0, 4096, "minimal"),
         ("small-context",  0.0, 1.0, 2048, "detailed"),
         ("large-context",  0.0, 1.0, 8192, "detailed"),
+        ("very-large-context", 0.0, 1.0, 16384, "detailed"),
     ]
     return [
         ModelConfig(
@@ -57,8 +59,8 @@ def build_configs(model_name: str, max_context: int = 8192) -> list[ModelConfig]
 
 MODELS: list[str] = [
     "llama3:latest",
-    "deepseek-r1:latest",
-    "qwen3:latest",
+    "deepseek-r1:1.5b",
+    "qwen2.5:7b",
 ]
 
 # ---------------------------------------------------------------------------
@@ -143,6 +145,12 @@ def get_system_prompt(suite: str, config: ModelConfig) -> str | None:
 def strip_think_tags(text: str) -> str:
     """Remove <think>...</think> blocks (deepseek-r1 chain-of-thought)."""
     return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+
+
+def word_match(expected: str, text: str) -> bool:
+    """Check if expected appears as a whole word/phrase in text (not as a substring of another word)."""
+    pattern = r"(?<![a-zA-Z0-9_])" + re.escape(expected) + r"(?![a-zA-Z0-9_])"
+    return bool(re.search(pattern, text, re.IGNORECASE))
 
 
 def strip_markdown_fences(text: str) -> str:
@@ -318,8 +326,8 @@ async def run_intent_suite(
         raw = extract_content(data).lower()
         # Strict match: exact word
         strict = raw.strip() == p["expected"]
-        # Loose match: expected appears anywhere in response
-        loose = p["expected"] in raw
+        # Loose match: expected appears as whole word (not substring of another word)
+        loose = word_match(p["expected"], raw)
         matched = loose
         if matched:
             correct += 1
@@ -515,6 +523,17 @@ async def run_needle_suite(
     total = 0
     details: list[dict[str, Any]] = []
 
+    # Store each haystack text once (at middle position) for the log
+    haystacks = [
+        {
+            "needle": n["fact"],
+            "query": n["query"],
+            "expected": n["answer"],
+            "haystack_text": build_haystack(n["fact"], 0.5, config.num_ctx),
+        }
+        for n in NEEDLES
+    ]
+
     for needle_info in NEEDLES:
         for pos_label, pos_frac in NEEDLE_POSITIONS:
             total += 1
@@ -539,6 +558,7 @@ async def run_needle_suite(
     pct = recalled / total * 100
     print(f"  Recalled: {recalled}/{total} ({pct:.1f}%)")
     return {
+        "haystacks": haystacks,
         "recalled": recalled,
         "total": total,
         "recall_percent": round(pct, 1),
@@ -612,7 +632,10 @@ async def run_code_suite(
             if proc.returncode == 0:
                 run_success += 1
                 stdout = proc.stdout.strip()
-                if cp["expected_output"] in stdout:
+                # Check each output line for an exact match to avoid
+                # partial number matches (e.g. "5" in "15")
+                stdout_lines = [l.strip() for l in stdout.split("\n") if l.strip()]
+                if cp["expected_output"] in stdout_lines or cp["expected_output"] == stdout:
                     output_correct += 1
                     print(f"  [PASS] {cp['prompt'][:55]}...")
                 else:
@@ -688,7 +711,7 @@ async def run_function_selection_suite(
         data = await chat(client, config, msgs, max_tokens=32)
         raw = extract_content(data).lower().strip()
         expected = case["expected"].lower()
-        matched = expected in raw
+        matched = raw == expected or word_match(expected, raw)
         if matched:
             correct += 1
         status = "OK" if matched else "MISS"
@@ -886,11 +909,16 @@ async def run_reasoning_suite(
         msgs = build_messages(sys_prompt, user_text)
         data = await chat(client, config, msgs, max_tokens=300)
         raw = extract_content(data).lower()
-        # Try to extract answer after "ANSWER:" prefix
+        # Try to extract answer after "ANSWER:" prefix, fall back to last line
         answer_match = re.search(r"answer:\s*(.+)", raw)
-        check_text = answer_match.group(1).strip() if answer_match else raw
+        if answer_match:
+            check_text = answer_match.group(1).strip()
+        else:
+            # Use last non-empty line as the answer (avoid matching reasoning text)
+            lines = [l.strip() for l in raw.strip().split("\n") if l.strip()]
+            check_text = lines[-1] if lines else raw
         expected = prob["answer"].lower()
-        found = expected in check_text or expected in raw
+        found = word_match(expected, check_text)
         if found:
             correct += 1
         status = "OK" if found else "MISS"
@@ -1007,7 +1035,7 @@ MULTI_TURN_CASES = [
             {"role": "assistant", "content": "Nice to meet you, Alice!"},
             {"role": "user", "content": "What is my name?"},
         ],
-        "validate": lambda r: "alice" in r.lower(),
+        "validate": lambda r: word_match("alice", r),
     },
     {
         "desc": "Fact tracking",
@@ -1018,7 +1046,7 @@ MULTI_TURN_CASES = [
             {"role": "assistant", "content": "Max and Luna, lovely pets!"},
             {"role": "user", "content": "What are my pets' names?"},
         ],
-        "validate": lambda r: "max" in r.lower() and "luna" in r.lower(),
+        "validate": lambda r: word_match("max", r) and word_match("luna", r),
     },
     {
         "desc": "Instruction persistence",
@@ -1036,7 +1064,7 @@ MULTI_TURN_CASES = [
             {"role": "assistant", "content": "Got it, the sky is green in your world."},
             {"role": "user", "content": "What color is the sky in my world?"},
         ],
-        "validate": lambda r: "green" in r.lower(),
+        "validate": lambda r: word_match("green", r),
     },
     {
         "desc": "Number tracking",
@@ -1047,7 +1075,7 @@ MULTI_TURN_CASES = [
             {"role": "assistant", "content": "42 times 2 is 84."},
             {"role": "user", "content": "What was my original number?"},
         ],
-        "validate": lambda r: "42" in r,
+        "validate": lambda r: word_match("42", r),
     },
     {
         "desc": "Preference recall",
@@ -1056,7 +1084,7 @@ MULTI_TURN_CASES = [
             {"role": "assistant", "content": "Blue and pizza, noted!"},
             {"role": "user", "content": "What is my favorite color?"},
         ],
-        "validate": lambda r: "blue" in r.lower(),
+        "validate": lambda r: word_match("blue", r),
     },
 ]
 
@@ -1176,16 +1204,26 @@ async def run_config(
           f"num_ctx={config.num_ctx}  system_style={config.system_style}")
     print(f"{'#' * 70}")
 
+    config_start = time.perf_counter()
+
     for suite_name in suites_to_run:
         if suite_name not in SUITES:
             print(f"\n  [WARN] Unknown suite: {suite_name}, skipping")
             continue
         try:
+            suite_start = time.perf_counter()
             result = await SUITES[suite_name](client, config)
+            suite_elapsed = time.perf_counter() - suite_start
+            result["elapsed_s"] = round(suite_elapsed, 3)
             results[suite_name] = result
+            print(f"  Suite time: {suite_elapsed:.1f}s")
         except Exception as e:
             print(f"\n  [ERROR] Suite '{suite_name}' failed: {e}")
             results[suite_name] = {"error": str(e)}
+
+    config_elapsed = time.perf_counter() - config_start
+    results["_total_elapsed_s"] = round(config_elapsed, 3)
+    print(f"\n  Config total time: {config_elapsed:.1f}s")
 
     return results
 
@@ -1196,6 +1234,7 @@ async def run_all(
     suite_filter: list[str] | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Run the full configuration matrix."""
+    run_start = time.perf_counter()
     all_results: dict[str, dict[str, Any]] = {}
     timeout = httpx.Timeout(120.0, connect=10.0)
 
@@ -1222,8 +1261,39 @@ async def run_all(
             results = await run_config(client, config, suite_filter)
             all_results[config.label] = results
 
+    total_elapsed = time.perf_counter() - run_start
+
     # Summary
     print_summary_table(all_results)
+
+    # Persist results
+    output = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "total_elapsed_s": round(total_elapsed, 3),
+        "filters": {
+            "models": model_filter,
+            "configs": config_filter,
+            "suites": suite_filter,
+        },
+        "configs_run": [
+            {
+                "config": asdict(c),
+                "suites": all_results[c.label],
+            }
+            for c in all_configs
+        ],
+    }
+    results_dir = Path("results")
+    results_dir.mkdir(exist_ok=True)
+    ts = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
+    # Build a short filename from models tested
+    model_slug = "_".join(
+        m.replace(":", "-").replace(".", "") for m in models_to_test
+    )[:60]
+    out_path = results_dir / f"{ts}_{model_slug}.json"
+    out_path.write_text(json.dumps(output, indent=2, default=str), encoding="utf-8")
+    print(f"\nResults saved to {out_path}")
+
     return all_results
 
 

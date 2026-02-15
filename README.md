@@ -23,13 +23,14 @@ Each model is tested under 5 configurations that vary inference parameters and s
 | **minimal-prompt** | 0 | 1.0 | 4096 | minimal |
 | **small-context** | 0 | 1.0 | 2048 | detailed |
 | **large-context** | 0 | 1.0 | 8192 | detailed |
+| **very-large-context** | 0 | 1.0 | 16384 | detailed |
 
 System prompt styles:
 - **detailed** — verbose system prompts (e.g. "You are a routing classifier...")
 - **minimal** — single-sentence system prompts (e.g. "Classify into: search, tool_call, answer, escalate")
 - **none** — no system prompt; instruction embedded in user message
 
-3 models x 5 configs = **15 runs**. Each run executes all 11 test suites (~130 test cases).
+3 models x 6 configs = **18 runs**. Each run executes all 11 test suites (~130 test cases).
 
 ## Test Suites
 
