@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Test Harness Dashboard</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-dim: #8b949e;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --yellow: #d29922;
+    --red: #f85149;
+    --orange: #db6d28;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+    padding: 24px;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+  h1 { font-size: 28px; margin-bottom: 4px; }
+  h2 { font-size: 20px; margin: 32px 0 16px; color: var(--accent); }
+  h3 { font-size: 16px; margin: 24px 0 12px; color: var(--text); }
+  .meta { color: var(--text-dim); font-size: 14px; margin-bottom: 24px; }
+  .meta span { margin-right: 24px; }
+
+  /* File picker */
+  .file-picker {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 32px;
+    padding: 20px;
+    background: var(--surface);
+    border: 2px dashed var(--border);
+    border-radius: 8px;
+  }
+  .file-picker.has-data { border-style: solid; border-color: var(--green); }
+  .file-picker input[type="file"] { display: none; }
+  .file-picker .pick-btn {
+    padding: 8px 20px;
+    background: var(--accent);
+    color: #0d1117;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .file-picker .pick-btn:hover { opacity: 0.9; }
+  .file-picker .file-name {
+    font-size: 14px;
+    color: var(--text);
+    font-weight: 500;
+  }
+  .empty-state {
+    text-align: center;
+    padding: 80px 24px;
+    color: var(--text-dim);
+    font-size: 16px;
+  }
+  .empty-state p { margin-top: 8px; font-size: 14px; }
+
+  /* Collapsible sections */
+  .collapsible {
+    margin-bottom: 8px;
+  }
+  .collapsible-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    user-select: none;
+    margin: 32px 0 0;
+  }
+  .collapsible-header h2 { margin: 0; }
+  .collapsible-header .chev {
+    font-size: 16px;
+    color: var(--accent);
+    transition: transform 0.2s;
+  }
+  .collapsible.open .collapsible-header .chev { transform: rotate(90deg); }
+  .collapsible-body {
+    display: none;
+    padding-top: 16px;
+  }
+  .collapsible.open .collapsible-body { display: block; }
+
+  /* Summary Table */
+  .summary-table { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 14px; }
+  .summary-table th, .summary-table td {
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    text-align: center;
+  }
+  .summary-table th {
+    background: var(--surface);
+    color: var(--accent);
+    font-weight: 600;
+    position: sticky;
+    top: 0;
+  }
+  .summary-table th:first-child, .summary-table td:first-child {
+    text-align: left;
+    font-weight: 600;
+    min-width: 180px;
+  }
+  .summary-table tr:hover td { background: rgba(88,166,255,0.05); }
+  .summary-table .cell-time { color: var(--text-dim); font-size: 11px; }
+
+  /* Score colors */
+  .score-100 { color: var(--green); font-weight: 600; }
+  .score-high { color: var(--green); }
+  .score-mid { color: var(--yellow); }
+  .score-low { color: var(--orange); }
+  .score-bad { color: var(--red); }
+
+  /* Config legend */
+  .config-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin: 0 0 20px;
+    padding: 12px 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 13px;
+  }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .legend-swatch {
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+  }
+
+  /* Chart sections */
+  .chart-section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin-bottom: 16px;
+  }
+  .chart-section h3 { margin: 0 0 14px; font-size: 14px; }
+
+  /* Timing bars */
+  .timing-group { margin-bottom: 12px; }
+  .timing-group-label { font-size: 12px; color: var(--text-dim); margin-bottom: 3px; }
+  .timing-group-label.section-name { font-size: 14px; font-weight: 600; color: var(--text); }
+  .timing-row { display: flex; align-items: center; margin: 3px 0; }
+  .timing-label { width: 160px; flex-shrink: 0; font-size: 13px; color: var(--text-dim); }
+  .timing-bar-area { flex: 1; min-width: 0; }
+  .timing-bar {
+    height: 18px;
+    border-radius: 3px;
+    min-width: 3px;
+  }
+  .timing-value {
+    width: 160px;
+    flex-shrink: 0;
+    font-size: 13px;
+    color: var(--text-dim);
+    text-align: right;
+    white-space: nowrap;
+  }
+  .timing-tokens { font-size: 11px; color: #6e7681; margin-left: 6px; }
+
+  /* Config cards */
+  .config-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 16px;
+    overflow: hidden;
+  }
+  .config-header {
+    padding: 16px 20px;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    user-select: none;
+  }
+  .config-header:hover { background: rgba(88,166,255,0.05); }
+  .config-header h3 { margin: 0; }
+  .config-body { padding: 0 20px 20px; display: none; }
+  .config-card.open .config-body { display: block; }
+  .config-tag {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 12px;
+    background: rgba(88,166,255,0.15);
+    color: var(--accent);
+    margin-left: 8px;
+  }
+  .config-time { font-size: 13px; color: var(--text-dim); }
+  .chevron { transition: transform 0.2s; font-size: 18px; color: var(--text-dim); }
+  .config-card.open .chevron { transform: rotate(90deg); }
+
+  /* Detail table */
+  .detail-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 12px; }
+  .detail-table th, .detail-table td {
+    padding: 6px 10px;
+    border: 1px solid var(--border);
+    text-align: left;
+  }
+  .detail-table th { background: var(--bg); color: var(--text-dim); font-weight: 500; }
+
+  /* Latency section */
+  .latency-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+    margin-top: 12px;
+  }
+  .latency-card {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 16px;
+  }
+  .latency-card .label { font-size: 12px; color: var(--text-dim); text-transform: uppercase; }
+  .latency-card .value { font-size: 24px; font-weight: 600; color: var(--accent); }
+  .latency-card .unit { font-size: 14px; color: var(--text-dim); }
+
+  #dashboard { display: none; }
+
+  /* Modal */
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 1000;
+    justify-content: center;
+    align-items: center;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    max-width: 900px;
+    width: 90vw;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+  }
+  .modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .modal-header h3 { margin: 0; font-size: 16px; }
+  .modal-close {
+    padding: 6px 16px;
+    background: var(--border);
+    color: var(--text);
+    border: none;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .modal-close:hover { background: #444c56; }
+  .modal-body {
+    padding: 20px;
+    overflow-y: auto;
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--text-dim);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+</style>
+</head>
+<body>
+
+<h1>AI Test Harness Dashboard</h1>
+
+<div class="file-picker" id="file-picker">
+  <button class="pick-btn" onclick="document.getElementById('file-input').click()">Select JSON File</button>
+  <input type="file" id="file-input" accept=".json">
+  <span class="file-name" id="file-name">No file selected</span>
+</div>
+
+<div id="empty-state" class="empty-state">
+  Select a results JSON file from the <code>results/</code> folder to view the dashboard.
+  <p>Files are named like <code>2026-02-14T22-58-35_qwen25-7b.json</code></p>
+</div>
+
+<div class="modal-overlay" id="haystack-modal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3 id="modal-title">Haystack Text</h3>
+      <button class="modal-close" onclick="document.getElementById('haystack-modal').classList.remove('open')">Close</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+
+<div id="dashboard">
+  <div class="meta" id="meta"></div>
+
+  <div class="collapsible" id="section-summary">
+    <div class="collapsible-header" onclick="this.parentElement.classList.toggle('open')">
+      <span class="chev">&#9654;</span>
+      <h2>Summary Comparison</h2>
+    </div>
+    <div class="collapsible-body">
+      <table class="summary-table" id="summary-table"></table>
+    </div>
+  </div>
+
+  <div class="collapsible" id="section-timing">
+    <div class="collapsible-header" onclick="this.parentElement.classList.toggle('open')">
+      <span class="chev">&#9654;</span>
+      <h2>Performance Timing</h2>
+    </div>
+    <div class="collapsible-body">
+      <div id="timing-legend"></div>
+      <div id="timing-charts"></div>
+    </div>
+  </div>
+
+  <div class="collapsible" id="section-details">
+    <div class="collapsible-header" onclick="this.parentElement.classList.toggle('open')">
+      <span class="chev">&#9654;</span>
+      <h2>Configuration Details</h2>
+    </div>
+    <div class="collapsible-body">
+      <div id="config-details"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const suiteNames = [
+  'latency', 'intent_classification', 'json_conformance', 'needle_in_haystack',
+  'code_generation', 'function_selection', 'argument_accuracy', 'context_scaling',
+  'reasoning_math', 'instruction_following', 'multi_turn_coherence'
+];
+const suiteLabels = {
+  latency: 'Latency',
+  intent_classification: 'Intent Classification',
+  json_conformance: 'JSON Conformance',
+  needle_in_haystack: 'Needle in Haystack',
+  code_generation: 'Code Generation',
+  function_selection: 'Function Selection',
+  argument_accuracy: 'Argument Accuracy',
+  context_scaling: 'Context Scaling',
+  reasoning_math: 'Reasoning / Math',
+  instruction_following: 'Instruction Following',
+  multi_turn_coherence: 'Multi-Turn Coherence'
+};
+
+// --- Directional color palette: cool → warm by config size/complexity ---
+// Ordered from smallest/simplest to largest/most complex
+const knownConfigColors = {
+  'small-context':      '#22d3ee',  // cyan        — smallest ctx
+  'precise':            '#3b82f6',  // blue        — baseline
+  'minimal-prompt':     '#6366f1',  // indigo      — prompt variant
+  'creative':           '#a855f7',  // purple      — temp variant
+  'large-context':      '#f59e0b',  // amber       — large ctx
+  'very-large-context': '#ef4444',  // red         — largest ctx
+};
+const fallbackColors = ['#22d3ee','#3b82f6','#6366f1','#a855f7','#f59e0b','#ef4444','#ec4899','#e6edf3'];
+
+function buildConfigColorMap(configs) {
+  const map = {};
+  let fallbackIdx = 0;
+  configs.forEach(cr => {
+    const short = configShortLabel(cr.config.label);
+    if (knownConfigColors[short]) {
+      map[short] = knownConfigColors[short];
+    } else {
+      map[short] = fallbackColors[fallbackIdx % fallbackColors.length];
+      fallbackIdx++;
+    }
+  });
+  return map;
+}
+
+function scoreClass(val, max) {
+  if (max === undefined) max = 100;
+  const pct = (val / max) * 100;
+  if (pct >= 100) return 'score-100';
+  if (pct >= 90) return 'score-high';
+  if (pct >= 70) return 'score-mid';
+  if (pct >= 50) return 'score-low';
+  return 'score-bad';
+}
+
+function formatScore(suite, data) {
+  if (!data || data.error) return '<span class="score-bad">ERR</span>';
+  if (suite === 'latency') {
+    return `<span class="${scoreClass(data.avg_tps, 100)}">${data.avg_tps} tok/s</span>`;
+  }
+  for (const key of ['accuracy_percent', 'recall_percent', 'correctness_percent', 'json_validity_percent']) {
+    if (key in data) {
+      const v = data[key];
+      return `<span class="${scoreClass(v)}">${v}%</span>`;
+    }
+  }
+  return '?';
+}
+
+function formatScoreWithTime(suite, data) {
+  if (!data || data.error) return '<span class="score-bad">ERR</span>';
+  const score = formatScore(suite, data);
+  const time = data.elapsed_s != null ? `${data.elapsed_s.toFixed(1)}s` : '';
+  return `${score}<br><span class="cell-time">${time}</span>`;
+}
+
+function formatTime(s) {
+  if (s < 60) return `${s.toFixed(1)}s`;
+  const m = Math.floor(s / 60);
+  const rem = (s % 60).toFixed(0);
+  return `${m}m ${rem}s`;
+}
+
+function configShortLabel(label) {
+  return label.split(' | ')[1] || label;
+}
+
+// Extract token counts from a suite's data
+function getSuiteTokens(suiteData, suiteName) {
+  if (!suiteData) return null;
+  // Direct fields (new format: every suite has prompt_tokens / completion_tokens)
+  if (suiteData.prompt_tokens != null) {
+    return { in: suiteData.prompt_tokens, out: suiteData.completion_tokens || 0 };
+  }
+  // Fallback for old latency data that only has per-prompt tokens
+  if (suiteName === 'latency' && suiteData.prompts) {
+    let inTok = 0, outTok = 0;
+    suiteData.prompts.forEach(p => {
+      inTok += p.prompt_tokens || 0;
+      outTok += p.completion_tokens || 0;
+    });
+    if (inTok > 0 || outTok > 0) return { in: inTok, out: outTok };
+  }
+  return null;
+}
+
+// Aggregate all available token counts for a config run
+function getConfigTotalTokens(configRun) {
+  let inTok = 0, outTok = 0, found = false;
+  for (const [name, data] of Object.entries(configRun.suites)) {
+    if (name.startsWith('_')) continue;
+    const tok = getSuiteTokens(data, name);
+    if (tok) { inTok += tok.in; outTok += tok.out; found = true; }
+  }
+  return found ? { in: inTok, out: outTok } : null;
+}
+
+function tokenLabel(tok) {
+  if (!tok) return '';
+  return `<span class="timing-tokens">in:${tok.in} out:${tok.out}</span>`;
+}
+
+function renderDashboard(DATA) {
+  document.getElementById('empty-state').style.display = 'none';
+  document.getElementById('dashboard').style.display = 'block';
+
+  const modelName = DATA.configs_run.length > 0 ? DATA.configs_run[0].config.name : 'Unknown';
+  const colorMap = buildConfigColorMap(DATA.configs_run);
+
+  // --- Meta ---
+  const meta = document.getElementById('meta');
+  const ts = new Date(DATA.timestamp);
+  meta.innerHTML = `
+    <span>Model: <strong>${modelName}</strong></span>
+    <span>Date: ${ts.toLocaleDateString()} ${ts.toLocaleTimeString()}</span>
+    <span>Total time: ${formatTime(DATA.total_elapsed_s)}</span>
+    <span>Configs: ${DATA.configs_run.length}</span>
+  `;
+
+  // --- Summary Table ---
+  const table = document.getElementById('summary-table');
+  let thead = '<tr><th>Suite</th>';
+  DATA.configs_run.forEach(cr => {
+    thead += `<th>${configShortLabel(cr.config.label)}</th>`;
+  });
+  thead += '</tr>';
+
+  let tbody = '';
+  suiteNames.forEach(suite => {
+    tbody += `<tr><td>${suiteLabels[suite]}</td>`;
+    DATA.configs_run.forEach(cr => {
+      const d = cr.suites[suite];
+      tbody += `<td>${formatScoreWithTime(suite, d)}</td>`;
+    });
+    tbody += '</tr>';
+  });
+
+  tbody += '<tr style="border-top:2px solid var(--accent)"><td><strong>Config Total</strong></td>';
+  DATA.configs_run.forEach(cr => {
+    const t = cr.suites._total_elapsed_s;
+    tbody += `<td style="color:var(--text-dim);font-size:13px;font-weight:600">${formatTime(t)}</td>`;
+  });
+  tbody += '</tr>';
+
+  table.innerHTML = thead + tbody;
+
+  // --- Config Legend ---
+  const legendDiv = document.getElementById('timing-legend');
+  let legendHtml = '<div class="config-legend">';
+  DATA.configs_run.forEach(cr => {
+    const short = configShortLabel(cr.config.label);
+    legendHtml += `<div class="legend-item">
+      <div class="legend-swatch" style="background:${colorMap[short]}"></div>
+      <span>${short}</span>
+    </div>`;
+  });
+  legendHtml += '</div>';
+  legendDiv.innerHTML = legendHtml;
+
+  // --- Timing Charts ---
+  const timingDiv = document.getElementById('timing-charts');
+
+  // Unified scale: global max across all suite elapsed_s AND config totals
+  let globalMaxTime = 0;
+  DATA.configs_run.forEach(cr => {
+    if (cr.suites._total_elapsed_s > globalMaxTime) globalMaxTime = cr.suites._total_elapsed_s;
+    suiteNames.forEach(suite => {
+      const d = cr.suites[suite];
+      if (d && d.elapsed_s > globalMaxTime) globalMaxTime = d.elapsed_s;
+    });
+  });
+
+  // Separate scale for tok/s
+  let globalMaxTps = 0;
+  DATA.configs_run.forEach(cr => {
+    const lat = cr.suites.latency;
+    if (lat && lat.prompts) {
+      lat.prompts.forEach(p => { if (p.tokens_per_second > globalMaxTps) globalMaxTps = p.tokens_per_second; });
+    }
+  });
+
+  function timeBar(label, seconds, color, tokHtml) {
+    const w = globalMaxTime > 0 ? (seconds / globalMaxTime) * 100 : 0;
+    return `<div class="timing-row">
+      <div class="timing-label">${label}</div>
+      <div class="timing-bar-area"><div class="timing-bar" style="width:${w}%;background:${color}"></div></div>
+      <div class="timing-value">${seconds.toFixed(1)}s${tokHtml || ''}</div>
+    </div>`;
+  }
+
+  function tpsBar(label, tps, color) {
+    const w = globalMaxTps > 0 ? (tps / globalMaxTps) * 100 : 0;
+    return `<div class="timing-row">
+      <div class="timing-label">${label}</div>
+      <div class="timing-bar-area"><div class="timing-bar" style="width:${w}%;background:${color}"></div></div>
+      <div class="timing-value">${tps} tok/s</div>
+    </div>`;
+  }
+
+  // Section 1: Suite Execution Time (with in/out tokens where available)
+  let html = '<div class="chart-section"><h3>Suite Execution Time</h3>';
+  suiteNames.forEach(suite => {
+    html += `<div class="timing-group"><div class="timing-group-label section-name">${suiteLabels[suite]}</div>`;
+    DATA.configs_run.forEach(cr => {
+      const short = configShortLabel(cr.config.label);
+      const d = cr.suites[suite];
+      const t = d ? (d.elapsed_s || 0) : 0;
+      const tok = d ? getSuiteTokens(d, suite) : null;
+      html += timeBar(short, t, colorMap[short], tokenLabel(tok));
+    });
+    html += '</div>';
+  });
+  html += '</div>';
+
+  // Section 2: Total Time per Config (with aggregated tokens)
+  html += '<div class="chart-section"><h3>Total Time per Config</h3>';
+  DATA.configs_run.forEach(cr => {
+    const short = configShortLabel(cr.config.label);
+    const t = cr.suites._total_elapsed_s;
+    const tok = getConfigTotalTokens(cr);
+    html += timeBar(short, t, colorMap[short], tokenLabel(tok));
+  });
+  html += '</div>';
+
+  // Section 3: Generation Speed (tok/s) — same config colors
+  html += '<div class="chart-section"><h3>Generation Speed (tok/s)</h3>';
+  DATA.configs_run.forEach(cr => {
+    const lat = cr.suites.latency;
+    if (!lat || !lat.prompts) return;
+    const short = configShortLabel(cr.config.label);
+    html += `<div class="timing-group"><div class="timing-group-label section-name">${short}</div>`;
+    lat.prompts.forEach(p => {
+      const tokHtml = `<span class="timing-tokens">in:${p.prompt_tokens || 0} out:${p.completion_tokens || 0}</span>`;
+      const w = globalMaxTps > 0 ? (p.tokens_per_second / globalMaxTps) * 100 : 0;
+      html += `<div class="timing-row">
+        <div class="timing-label">${p.label}</div>
+        <div class="timing-bar-area"><div class="timing-bar" style="width:${w}%;background:${colorMap[short]}"></div></div>
+        <div class="timing-value">${p.tokens_per_second} tok/s${tokHtml}</div>
+      </div>`;
+    });
+    html += '</div>';
+  });
+  html += '</div>';
+
+  timingDiv.innerHTML = html;
+
+  // --- Config Details ---
+  const detailsDiv = document.getElementById('config-details');
+  detailsDiv.innerHTML = '';
+
+  DATA.configs_run.forEach((cr, idx) => {
+    const cfg = cr.config;
+    const suites = cr.suites;
+    const short = configShortLabel(cfg.label);
+    const card = document.createElement('div');
+    card.className = 'config-card';
+    card.style.borderLeftColor = colorMap[short];
+    card.style.borderLeftWidth = '4px';
+
+    const header = document.createElement('div');
+    header.className = 'config-header';
+    header.innerHTML = `
+      <div>
+        <h3>${cfg.label}
+          <span class="config-tag">temp=${cfg.temperature}</span>
+          <span class="config-tag">top_p=${cfg.top_p}</span>
+          <span class="config-tag">ctx=${cfg.num_ctx}</span>
+          <span class="config-tag">${cfg.system_style}</span>
+        </h3>
+      </div>
+      <div style="display:flex;align-items:center;gap:16px">
+        <span class="config-time">${formatTime(suites._total_elapsed_s)}</span>
+        <span class="chevron">&#9654;</span>
+      </div>
+    `;
+    header.onclick = () => card.classList.toggle('open');
+
+    const body = document.createElement('div');
+    body.className = 'config-body';
+
+    // Latency
+    const lat = suites.latency;
+    if (lat && !lat.error) {
+      let latHtml = '<h3>Latency</h3><div class="latency-grid">';
+      latHtml += `<div class="latency-card"><div class="label">Cold Start</div><div class="value">${lat.cold_start_s}<span class="unit">s</span></div></div>`;
+      latHtml += `<div class="latency-card"><div class="label">Avg Speed</div><div class="value">${lat.avg_tps}<span class="unit"> tok/s</span></div></div>`;
+      if (lat.prompts) {
+        lat.prompts.forEach(p => {
+          latHtml += `<div class="latency-card"><div class="label">${p.label}</div><div class="value">${p.tokens_per_second}<span class="unit"> tok/s</span></div><div style="font-size:12px;color:var(--text-dim)">${p.total_time_s}s | in:${p.prompt_tokens || 0} out:${p.completion_tokens || 0}</div></div>`;
+        });
+      }
+      latHtml += '</div>';
+      body.innerHTML += latHtml;
+    }
+
+    // Suite results table
+    let tableHtml = '<h3>Suite Scores</h3><table class="detail-table"><tr><th>Suite</th><th>Score</th><th>Detail</th><th>Time</th></tr>';
+    suiteNames.forEach(suite => {
+      if (suite === 'latency') return;
+      const d = suites[suite];
+      if (!d) return;
+      let detail = '';
+      if (d.correct !== undefined && d.total !== undefined) detail = `${d.correct}/${d.total}`;
+      else if (d.recalled !== undefined) detail = `${d.recalled}/${d.total}`;
+      else if (d.valid !== undefined) detail = `valid: ${d.valid}/${d.total}, struct: ${d.structurally_correct || '?'}/${d.total}`;
+      else if (d.output_correct !== undefined) detail = `run: ${d.run_success}/${d.total}, correct: ${d.output_correct}/${d.total}`;
+      const time = d.elapsed_s ? `${d.elapsed_s.toFixed(1)}s` : '';
+      tableHtml += `<tr><td>${suiteLabels[suite]}</td><td>${formatScore(suite, d)}</td><td style="color:var(--text-dim)">${detail}</td><td style="color:var(--text-dim)">${time}</td></tr>`;
+    });
+    tableHtml += '</table>';
+    body.innerHTML += tableHtml;
+
+    // Needle details
+    const nh = suites.needle_in_haystack;
+    if (nh && nh.details) {
+      const hasHaystacks = nh.haystacks && nh.haystacks.length > 0;
+      const haystackBtnId = `haystack-btn-${idx}`;
+      let nhHtml = `<div style="display:flex;align-items:center;gap:12px"><h3 style="margin-bottom:0">Needle in Haystack Detail</h3>`;
+      if (hasHaystacks) {
+        nhHtml += `<button class="modal-close" id="${haystackBtnId}" style="margin-top:20px;background:var(--accent);color:#0d1117;font-weight:600">Show Haystacks</button>`;
+      }
+      nhHtml += `</div>`;
+      nhHtml += '<table class="detail-table"><tr><th>Needle</th><th>beginning</th><th>quarter</th><th>middle</th><th>3/4</th><th>end</th></tr>';
+      const needleNames = [...new Set(nh.details.map(d => d.needle))];
+      needleNames.forEach(name => {
+        nhHtml += `<tr><td>${name}</td>`;
+        ['beginning','quarter','middle','three-quarter','end'].forEach(pos => {
+          const match = nh.details.find(d => d.needle === name && d.position === pos);
+          if (match) {
+            nhHtml += `<td style="text-align:center"><span class="${match.found ? 'score-100' : 'score-bad'}">${match.found ? 'OK' : 'MISS'}</span></td>`;
+          } else {
+            nhHtml += '<td>-</td>';
+          }
+        });
+        nhHtml += '</tr>';
+      });
+      nhHtml += '</table>';
+      body.innerHTML += nhHtml;
+
+      // Wire up haystack modal button after DOM insertion
+      if (hasHaystacks) {
+        const wireBtn = () => {
+          const btn = document.getElementById(haystackBtnId);
+          if (btn) {
+            btn.onclick = () => {
+              let content = '';
+              nh.haystacks.forEach((h, i) => {
+                content += `=== Needle ${i + 1}: ${h.needle} ===\nQuery: ${h.query}\nExpected: ${h.expected}\n\n`;
+                content += h.haystack_text + '\n\n' + '─'.repeat(80) + '\n\n';
+              });
+              document.getElementById('modal-title').textContent = `Haystacks — ${cfg.label}`;
+              document.getElementById('modal-body').textContent = content;
+              document.getElementById('haystack-modal').classList.add('open');
+            };
+          }
+        };
+        // Defer to after card is appended to DOM
+        setTimeout(wireBtn, 0);
+      }
+    }
+
+    // Context scaling details
+    const cs = suites.context_scaling;
+    if (cs && cs.checkpoints) {
+      let csHtml = '<h3>Context Scaling Checkpoints</h3><table class="detail-table"><tr><th>% of num_ctx</th><th>Tokens</th><th>Recalled</th></tr>';
+      cs.checkpoints.forEach(cp => {
+        csHtml += `<tr><td>${(cp.fraction*100).toFixed(0)}%</td><td>${cp.ctx_tokens}</td><td><span class="${cp.recalled ? 'score-100' : 'score-bad'}">${cp.recalled ? 'OK' : 'MISS'}</span></td></tr>`;
+      });
+      csHtml += '</table>';
+      body.innerHTML += csHtml;
+    }
+
+    card.appendChild(header);
+    card.appendChild(body);
+    detailsDiv.appendChild(card);
+  });
+}
+
+// --- Modal close on Escape or overlay click ---
+document.getElementById('haystack-modal').addEventListener('click', (e) => {
+  if (e.target === e.currentTarget) e.currentTarget.classList.remove('open');
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') document.getElementById('haystack-modal').classList.remove('open');
+});
+
+// --- File picker ---
+const fileInput = document.getElementById('file-input');
+const fileNameSpan = document.getElementById('file-name');
+const filePicker = document.getElementById('file-picker');
+
+fileInput.addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  fileNameSpan.textContent = file.name;
+
+  const reader = new FileReader();
+  reader.onload = (evt) => {
+    try {
+      const data = JSON.parse(evt.target.result);
+      filePicker.classList.add('has-data');
+      document.title = `AI Test Harness — ${file.name}`;
+      renderDashboard(data);
+    } catch (err) {
+      fileNameSpan.textContent = `Error: ${err.message}`;
+      filePicker.classList.remove('has-data');
+    }
+  };
+  reader.readAsText(file);
+});
+</script>
+
+</body>
+</html>

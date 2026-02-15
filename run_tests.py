@@ -167,12 +167,31 @@ def strip_markdown_fences(text: str) -> str:
     return "\n".join(out).strip()
 
 
+class TokenCounter:
+    """Accumulates prompt and completion token counts across multiple chat calls."""
+
+    def __init__(self) -> None:
+        self.prompt_tokens: int = 0
+        self.completion_tokens: int = 0
+
+    def add(self, usage: dict[str, Any]) -> None:
+        self.prompt_tokens += usage.get("prompt_tokens", 0)
+        self.completion_tokens += usage.get("completion_tokens", 0)
+
+    def as_dict(self) -> dict[str, int]:
+        return {
+            "prompt_tokens": self.prompt_tokens,
+            "completion_tokens": self.completion_tokens,
+        }
+
+
 async def chat(
     client: httpx.AsyncClient,
     config: ModelConfig,
     messages: list[dict[str, str]],
     max_tokens: int = 256,
     timeout: float = 60.0,
+    counter: TokenCounter | None = None,
 ) -> dict[str, Any]:
     """Send a chat completion request using config params, return parsed response."""
     payload: dict[str, Any] = {
@@ -193,6 +212,9 @@ async def chat(
     # Strip think tags from content
     content = data["choices"][0]["message"]["content"]
     data["choices"][0]["message"]["content"] = strip_think_tags(content)
+    # Accumulate tokens
+    if counter is not None:
+        counter.add(data.get("usage", {}))
     return data
 
 
@@ -227,6 +249,7 @@ async def run_latency_suite(
     client: httpx.AsyncClient, config: ModelConfig
 ) -> dict[str, Any]:
     print("\n=== Latency Test ===")
+    counter = TokenCounter()
     prompts = [
         ("short", "Say hello.", 32),
         ("medium", "Explain what a hash table is in two sentences.", 128),
@@ -238,14 +261,14 @@ async def run_latency_suite(
     start = time.perf_counter()
     sys_prompt = get_system_prompt("intent", config)  # light prompt
     msgs = build_messages(sys_prompt, "ping", config.system_style, "Reply with pong.")
-    await chat(client, config, msgs, max_tokens=8)
+    await chat(client, config, msgs, max_tokens=8, counter=counter)
     cold_start = time.perf_counter() - start
     print(f"  Cold-start latency: {cold_start:.3f}s")
 
     for label, prompt, max_tok in prompts:
         msgs = build_messages(None, prompt)
         start = time.perf_counter()
-        data = await chat(client, config, msgs, max_tokens=max_tok)
+        data = await chat(client, config, msgs, max_tokens=max_tok, counter=counter)
         elapsed = time.perf_counter() - start
         usage = data.get("usage", {})
         comp_tok = usage.get("completion_tokens", 0)
@@ -266,6 +289,7 @@ async def run_latency_suite(
         "avg_tps": round(
             sum(r["tokens_per_second"] for r in results) / len(results), 1
         ),
+        **counter.as_dict(),
     }
 
 
@@ -310,6 +334,7 @@ async def run_intent_suite(
     client: httpx.AsyncClient, config: ModelConfig
 ) -> dict[str, Any]:
     print("\n=== Intent Classification ===")
+    counter = TokenCounter()
     sys_prompt = get_system_prompt("intent", config)
     correct = 0
     details: list[dict[str, Any]] = []
@@ -322,7 +347,7 @@ async def run_intent_suite(
                 "Reply with the category only.\n\n" + p["text"]
             )
         msgs = build_messages(sys_prompt, user_content)
-        data = await chat(client, config, msgs, max_tokens=16)
+        data = await chat(client, config, msgs, max_tokens=16, counter=counter)
         raw = extract_content(data).lower()
         # Strict match: exact word
         strict = raw.strip() == p["expected"]
@@ -351,6 +376,7 @@ async def run_intent_suite(
         "correct_strict": strict_count,
         "total": len(INTENT_PROMPTS),
         "accuracy_percent": round(acc, 1),
+        **counter.as_dict(),
     }
 
 
@@ -432,6 +458,7 @@ async def run_json_suite(
     client: httpx.AsyncClient, config: ModelConfig
 ) -> dict[str, Any]:
     print("\n=== JSON Schema Conformance ===")
+    counter = TokenCounter()
     sys_prompt = get_system_prompt("json", config)
     valid_count = 0
     struct_valid = 0
@@ -441,7 +468,7 @@ async def run_json_suite(
         if config.system_style == "none":
             prompt_text = "Reply with ONLY valid JSON, no explanation.\n\n" + prompt_text
         msgs = build_messages(sys_prompt, prompt_text)
-        data = await chat(client, config, msgs, max_tokens=300)
+        data = await chat(client, config, msgs, max_tokens=300, counter=counter)
         content = strip_markdown_fences(extract_content(data))
         try:
             parsed = json.loads(content)
@@ -466,6 +493,7 @@ async def run_json_suite(
         "total": total,
         "json_validity_percent": round(pct_valid, 1),
         "structural_accuracy_percent": round(pct_struct, 1),
+        **counter.as_dict(),
     }
 
 
@@ -519,6 +547,7 @@ async def run_needle_suite(
     client: httpx.AsyncClient, config: ModelConfig
 ) -> dict[str, Any]:
     print("\n=== Needle in Haystack ===")
+    counter = TokenCounter()
     recalled = 0
     total = 0
     details: list[dict[str, Any]] = []
@@ -542,14 +571,14 @@ async def run_needle_suite(
                 {"role": "system", "content": haystack},
                 {"role": "user", "content": needle_info["query"]},
             ]
-            data = await chat(client, config, msgs, max_tokens=64)
+            data = await chat(client, config, msgs, max_tokens=64, counter=counter)
             answer = extract_content(data).lower()
             found = needle_info["answer"].lower() in answer
             if found:
                 recalled += 1
             status = "OK" if found else "MISS"
             details.append({
-                "needle": needle_info["fact"][:40],
+                "needle": needle_info["fact"],
                 "position": pos_label,
                 "found": found,
             })
@@ -563,6 +592,7 @@ async def run_needle_suite(
         "total": total,
         "recall_percent": round(pct, 1),
         "details": details,
+        **counter.as_dict(),
     }
 
 
@@ -610,6 +640,7 @@ async def run_code_suite(
     client: httpx.AsyncClient, config: ModelConfig
 ) -> dict[str, Any]:
     print("\n=== Code Generation ===")
+    counter = TokenCounter()
     sys_prompt = get_system_prompt("code", config)
     run_success = 0
     output_correct = 0
@@ -619,7 +650,7 @@ async def run_code_suite(
         if config.system_style == "none":
             prompt_text = "Reply with ONLY executable Python code, no explanation.\n\n" + prompt_text
         msgs = build_messages(sys_prompt, prompt_text)
-        data = await chat(client, config, msgs, max_tokens=512)
+        data = await chat(client, config, msgs, max_tokens=512, counter=counter)
         code = strip_markdown_fences(extract_content(data))
 
         tmp = Path(tempfile.mktemp(suffix=".py"))
@@ -660,6 +691,7 @@ async def run_code_suite(
         "total": total,
         "run_percent": round(pct_run, 1),
         "correctness_percent": round(pct_correct, 1),
+        **counter.as_dict(),
     }
 
 
@@ -696,6 +728,7 @@ async def run_function_selection_suite(
     client: httpx.AsyncClient, config: ModelConfig
 ) -> dict[str, Any]:
     print("\n=== Function Selection ===")
+    counter = TokenCounter()
     sys_prompt = get_system_prompt("function", config)
     tools_list = ", ".join(AVAILABLE_TOOLS)
     correct = 0
@@ -708,7 +741,7 @@ async def run_function_selection_suite(
                 + user_text
             )
         msgs = build_messages(sys_prompt, user_text)
-        data = await chat(client, config, msgs, max_tokens=32)
+        data = await chat(client, config, msgs, max_tokens=32, counter=counter)
         raw = extract_content(data).lower().strip()
         expected = case["expected"].lower()
         matched = raw == expected or word_match(expected, raw)
@@ -724,6 +757,7 @@ async def run_function_selection_suite(
         "correct": correct,
         "total": total,
         "accuracy_percent": round(pct, 1),
+        **counter.as_dict(),
     }
 
 
@@ -779,6 +813,7 @@ async def run_argument_suite(
     client: httpx.AsyncClient, config: ModelConfig
 ) -> dict[str, Any]:
     print("\n=== Argument Accuracy ===")
+    counter = TokenCounter()
     sys_prompt = get_system_prompt("argument", config)
     correct = 0
 
@@ -790,7 +825,7 @@ async def run_argument_suite(
                 + user_text
             )
         msgs = build_messages(sys_prompt, user_text)
-        data = await chat(client, config, msgs, max_tokens=200)
+        data = await chat(client, config, msgs, max_tokens=200, counter=counter)
         raw = strip_markdown_fences(extract_content(data))
         try:
             parsed = json.loads(raw)
@@ -822,6 +857,7 @@ async def run_argument_suite(
         "correct": correct,
         "total": total,
         "accuracy_percent": round(pct, 1),
+        **counter.as_dict(),
     }
 
 
@@ -833,6 +869,7 @@ async def run_context_scaling_suite(
     client: httpx.AsyncClient, config: ModelConfig
 ) -> dict[str, Any]:
     print("\n=== Context Scaling ===")
+    counter = TokenCounter()
     checkpoints = [0.25, 0.50, 0.75, 1.00]
     secret = "The project codename is FALCON-ECHO-42."
     query = "What is the project codename?"
@@ -847,7 +884,7 @@ async def run_context_scaling_suite(
             {"role": "user", "content": query},
         ]
         try:
-            data = await chat(client, config, msgs, max_tokens=64, timeout=120.0)
+            data = await chat(client, config, msgs, max_tokens=64, timeout=120.0, counter=counter)
             content = extract_content(data).lower()
             found = answer_key in content
             status = "OK" if found else "MISS"
@@ -866,6 +903,7 @@ async def run_context_scaling_suite(
         "total": total,
         "recall_percent": round(pct, 1),
         "checkpoints": results,
+        **counter.as_dict(),
     }
 
 
@@ -899,6 +937,7 @@ async def run_reasoning_suite(
     client: httpx.AsyncClient, config: ModelConfig
 ) -> dict[str, Any]:
     print("\n=== Reasoning / Math ===")
+    counter = TokenCounter()
     sys_prompt = get_system_prompt("reasoning", config)
     correct = 0
 
@@ -907,7 +946,7 @@ async def run_reasoning_suite(
         if config.system_style == "none":
             user_text = "Solve and give the final answer after 'ANSWER: '.\n\n" + user_text
         msgs = build_messages(sys_prompt, user_text)
-        data = await chat(client, config, msgs, max_tokens=300)
+        data = await chat(client, config, msgs, max_tokens=300, counter=counter)
         raw = extract_content(data).lower()
         # Try to extract answer after "ANSWER:" prefix, fall back to last line
         answer_match = re.search(r"answer:\s*(.+)", raw)
@@ -932,6 +971,7 @@ async def run_reasoning_suite(
         "correct": correct,
         "total": total,
         "accuracy_percent": round(pct, 1),
+        **counter.as_dict(),
     }
 
 
@@ -997,6 +1037,7 @@ async def run_instruction_suite(
     client: httpx.AsyncClient, config: ModelConfig
 ) -> dict[str, Any]:
     print("\n=== Instruction Following ===")
+    counter = TokenCounter()
     sys_prompt = get_system_prompt("instruction", config)
     correct = 0
 
@@ -1005,7 +1046,7 @@ async def run_instruction_suite(
         if config.system_style == "none":
             user_text = "Follow these instructions exactly.\n\n" + user_text
         msgs = build_messages(sys_prompt, user_text)
-        data = await chat(client, config, msgs, max_tokens=128)
+        data = await chat(client, config, msgs, max_tokens=128, counter=counter)
         raw = extract_content(data)
         passed = case["validate"](raw)
         if passed:
@@ -1020,6 +1061,7 @@ async def run_instruction_suite(
         "correct": correct,
         "total": total,
         "accuracy_percent": round(pct, 1),
+        **counter.as_dict(),
     }
 
 
@@ -1093,11 +1135,12 @@ async def run_multi_turn_suite(
     client: httpx.AsyncClient, config: ModelConfig
 ) -> dict[str, Any]:
     print("\n=== Multi-Turn Coherence ===")
+    counter = TokenCounter()
     correct = 0
 
     for case in MULTI_TURN_CASES:
         msgs = list(case["turns"])
-        data = await chat(client, config, msgs, max_tokens=128)
+        data = await chat(client, config, msgs, max_tokens=128, counter=counter)
         raw = extract_content(data)
         passed = case["validate"](raw)
         if passed:
@@ -1112,6 +1155,7 @@ async def run_multi_turn_suite(
         "correct": correct,
         "total": total,
         "accuracy_percent": round(pct, 1),
+        **counter.as_dict(),
     }
 
 
